@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tender Bid App</title>
+<script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.264.0/dist/lucide.min.js"></script>
+</head>
+<body class="bg-blue-50">
+
+<div id="app"></div>
+
+<script>
+// --------------------------
+// SheetDB APIs
+// --------------------------
+const VEHICLES_API = "https://sheetdb.io/api/v1/b0gi8fgolu5w6"; // Vehicles
+const BIDS_API = "https://sheetdb.io/api/v1/rmp8dwpmq9ibe";     // Bids
+
+// --------------------------
+// App State
+// --------------------------
+let state = {
+  screen: "entry", // 'entry' or 'confirm'
+  vehicles: [],
+  filteredVehicles: [],
+  searchTerm: "",
+  selectedVehicle: null,
+  showInstructions: true,
+  formData: {
+    bidderNIC: "",
+    bidderName: "",
+    bidderPhone: "",
+    tenderBid: "",
+    enteredBy: ""
+  },
+  savedBids: []
+};
+
+// --------------------------
+// Fetch Vehicles
+// --------------------------
+function fetchVehicles() {
+  axios.get(VEHICLES_API)
+    .then(res => {
+      state.vehicles = res.data;
+      render();
+    })
+    .catch(err => console.error("Failed to load vehicles:", err));
+}
+
+// --------------------------
+// Save Bid to SheetDB
+// --------------------------
+function saveBid() {
+  const f = state.formData;
+  if (!state.selectedVehicle || !f.bidderNIC || !f.bidderName || !f.bidderPhone || !f.tenderBid || !f.enteredBy) {
+    alert("Please fill all required fields");
+    return;
+  }
+
+  const payload = {
+    data: [{
+      "Vehicle Number": state.selectedVehicle["Vehicle Number"],
+      "Bidder NIC": f.bidderNIC,
+      "Bidder Name": f.bidderName,
+      "Bidder Phone": f.bidderPhone,
+      "Tender Bid": f.tenderBid,
+      "Entered By": f.enteredBy,
+      "Confirmed By": "System",
+      "Confirmed At": new Date().toLocaleString()
+    }]
+  };
+
+  axios.post(BIDS_API, payload)
+    .then(res => {
+      if (res.data.created || res.data.success) {
+        alert("Tender bid saved successfully!");
+        state.savedBids.push(payload.data[0]);
+        state.selectedVehicle = null;
+        state.formData = { bidderNIC: "", bidderName: "", bidderPhone: "", tenderBid: "", enteredBy: "" };
+        state.screen = "entry";
+        render();
+      } else {
+        console.log(res.data);
+        alert("Failed to save bid. Check SheetDB settings.");
+      }
+    })
+    .catch(err => {
+      console.error(err);
+      alert("Network or API error. Check console.");
+    });
+}
+
+// --------------------------
+// Export CSV
+// --------------------------
+function exportCSV() {
+  if (state.savedBids.length === 0) {
+    alert("No data to export");
+    return;
+  }
+  const headers = ["Vehicle Number", "Bidder NIC", "Bidder Name", "Bidder Phone", "Tender Bid", "Entered By", "Confirmed By", "Confirmed At"];
+  const rows = state.savedBids.map(bid => headers.map(h => bid[h] || ""));
+  const csvContent = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `tender_bids_${new Date().toISOString().split("T")[0]}.csv`;
+  link.click();
+}
+
+// --------------------------
+// Render App
+// --------------------------
+function render() {
+  const app = document.getElementById("app");
+  if (!app) return;
+
+  if (state.screen === "confirm") {
+    app.innerHTML = `
+      <div class="min-h-screen p-6 bg-gradient-to-br from-blue-50 to-indigo-100 flex justify-center">
+        <div class="w-full max-w-2xl bg-white p-6 rounded-lg shadow-lg">
+          <div class="flex items-center mb-6">
+            <button onclick="state.screen='entry';render();" class="mr-4 p-2 hover:bg-gray-100 rounded-lg">←</button>
+            <h1 class="text-2xl font-bold">Confirm Tender Bid</h1>
+          </div>
+          <div class="bg-blue-50 p-4 rounded-lg mb-6 space-y-2">
+            <div><strong>Vehicle Number:</strong> ${state.selectedVehicle["Vehicle Number"]}</div>
+            <div><strong>Bidder NIC:</strong> ${state.formData.bidderNIC}</div>
+            <div><strong>Bidder Name:</strong> ${state.formData.bidderName}</div>
+            <div><strong>Telephone:</strong> ${state.formData.bidderPhone}</div>
+            <div><strong>Tender Bid:</strong> LKR ${parseFloat(state.formData.tenderBid).toLocaleString()}</div>
+            <div><strong>Entered By:</strong> ${state.formData.enteredBy}</div>
+          </div>
+          <div class="flex gap-4">
+            <button onclick="state.screen='entry';render();" class="flex-1 px-4 py-2 bg-gray-200 rounded-lg">Back to Edit</button>
+            <button onclick="saveBid()" class="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg">Confirm & Save</button>
+          </div>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  // Main Entry Screen
+  app.innerHTML = `
+    <div class="min-h-screen p-6 bg-gradient-to-br from-blue-50 to-indigo-100 flex justify-center">
+      <div class="w-full max-w-2xl relative">
+        ${state.showInstructions ? `
+        <div class="bg-blue-600 text-white p-4 rounded-lg mb-6">
+          <div class="flex justify-between items-start">
+            <div><strong>How to use this app</strong></div>
+            <button onclick="state.showInstructions=false;render();" class="ml-2">✕</button>
+          </div>
+          <ol class="text-sm mt-2">
+            <li>Step 1: Search and select a vehicle</li>
+            <li>Step 2: Fill in bidder details</li>
+            <li>Step 3: Enter your name in 'Entered By'</li>
+            <li>Step 4: Click 'Proceed to Confirm'</li>
+            <li>Step 5: Confirm & Save</li>
+            <li>Export CSV: Click 'Export All Data' to download bids</li>
+          </ol>
+        </div>` : ``}
+
+        <!-- Vehicle Input -->
+        <div class="mb-4 relative">
+          <label class="block mb-1">Vehicle Number *</label>
+          <input id="vehicleInput" type="text" placeholder="Search vehicle number..." class="w-full p-2 border rounded-lg mb-2"/>
+          <div id="vehicleDropdown" class="border rounded-lg max-h-40 overflow-y-auto bg-white absolute z-10 w-full hidden"></div>
+        </div>
+
+        <!-- Bidder Details -->
+        <div class="space-y-2 mb-4">
+          <input type="text" placeholder="Bidder NIC" value="${state.formData.bidderNIC}" oninput="state.formData.bidderNIC=this.value" class="w-full p-2 border rounded-lg"/>
+          <input type="text" placeholder="Bidder Name" value="${state.formData.bidderName}" oninput="state.formData.bidderName=this.value" class="w-full p-2 border rounded-lg"/>
+          <input type="text" placeholder="Telephone" value="${state.formData.bidderPhone}" oninput="state.formData.bidderPhone=this.value" class="w-full p-2 border rounded-lg"/>
+          <input type="number" placeholder="Tender Bid" value="${state.formData.tenderBid}" oninput="state.formData.tenderBid=this.value" class="w-full p-2 border rounded-lg"/>
+          <input type="text" placeholder="Entered By" value="${state.formData.enteredBy}" oninput="state.formData.enteredBy=this.value" class="w-full p-2 border rounded-lg"/>
+        </div>
+
+        <button onclick="state.screen='confirm';render();" class="w-full py-2 bg-blue-600 text-white rounded-lg mb-2">Proceed to Confirm</button>
+        ${state.savedBids.length > 0 ? `<button onclick="exportCSV()" class="w-full py-2 bg-green-600 text-white rounded-lg">Export All Data</button>` : ""}
+
+        <!-- Saved Bids -->
+        ${state.savedBids.length > 0 ? `
+          <div class="bg-white p-4 rounded-lg shadow-lg max-h-96 overflow-y-auto mt-4">
+            <h2 class="font-bold mb-2">Saved Bids (${state.savedBids.length})</h2>
+            ${state.savedBids.slice().reverse().map(b => `
+              <div class="border p-2 rounded-lg mb-2">
+                <strong>${b["Vehicle Number"]}</strong> - ${b["Bidder Name"]} | Bid: LKR ${parseFloat(b["Tender Bid"]).toLocaleString()}<br/>
+                NIC: ${b["Bidder NIC"]} | Phone: ${b["Bidder Phone"]}<br/>
+                Entered By: ${b["Entered By"]} | Confirmed At: ${b["Confirmed At"]}
+              </div>`).join("")}
+          </div>` : ""}
+      </div>
+    </div>
+  `;
+
+  // Vehicle Dropdown Logic
+  const vehicleInput = document.getElementById("vehicleInput");
+  const vehicleDropdown = document.getElementById("vehicleDropdown");
+
+  vehicleInput.value = state.selectedVehicle ? state.selectedVehicle["Vehicle Number"] : state.searchTerm;
+
+  vehicleInput.addEventListener("input", (e) => {
+    state.searchTerm = e.target.value;
+    state.selectedVehicle = null;
+    state.filteredVehicles = state.vehicles.filter(v =>
+      v["Vehicle Number"].toLowerCase().includes(state.searchTerm.toLowerCase())
+    );
+    renderVehicleDropdown();
+  });
+
+  function renderVehicleDropdown() {
+    vehicleDropdown.innerHTML = "";
+    if (!state.searchTerm || state.filteredVehicles.length === 0) {
+      vehicleDropdown.classList.add("hidden");
+      return;
+    }
+
+    state.filteredVehicles.forEach(v => {
+      const div = document.createElement("div");
+      div.className = "p-2 hover:bg-blue-50 cursor-pointer";
+      div.textContent = `${v["Vehicle Number"]} - ${v.Make || v.make || ""} ${v.Model || v.model || ""}`;
+      div.addEventListener("click", () => {
+        state.selectedVehicle = v;
+        vehicleInput.value = v["Vehicle Number"];
+        state.searchTerm = "";
+        state.filteredVehicles = [];
+        vehicleDropdown.classList.add("hidden");
+        render();
+      });
+      vehicleDropdown.appendChild(div);
+    });
+    vehicleDropdown.classList.remove("hidden");
+  }
+}
+
+// --------------------------
+// Initialize App
+// --------------------------
+fetchVehicles();
+render();
+</script>
+
+</body>
+</html>
